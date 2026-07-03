@@ -4,13 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import markdown2
+try:
+    import markdown2  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - exercised in lightweight environments.
+    markdown2 = None
 
 DISCLAIMER = "仅供研究，不构成投资建议；不自动交易；不连接券商 API。"
 PLACEHOLDER_TEXT = "暂无正式报告，本次仅生成占位页面"
@@ -200,8 +202,35 @@ def _wrap_report_body(body_html: str, *, flagged_absolute: bool, flagged_operati
     return "\n".join(sections)
 
 
+def _simple_markdown_to_html(markdown_text: str) -> str:
+    paragraphs: List[str] = []
+    for block in markdown_text.split("\n\n"):
+        lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        first = lines[0]
+        if first.startswith("# "):
+            paragraphs.append(f"<h1>{escape(first[2:])}</h1>")
+            if len(lines) > 1:
+                paragraphs.append(f"<p>{escape(' '.join(lines[1:]))}</p>")
+            continue
+        if first.startswith("## "):
+            paragraphs.append(f"<h2>{escape(first[3:])}</h2>")
+            if len(lines) > 1:
+                paragraphs.append(f"<p>{escape(' '.join(lines[1:]))}</p>")
+            continue
+        if all(line.startswith("- ") for line in lines):
+            items = "".join(f"<li>{escape(line[2:])}</li>" for line in lines)
+            paragraphs.append(f"<ul>{items}</ul>")
+            continue
+        paragraphs.append(f"<p>{escape(' '.join(lines))}</p>")
+    return "\n".join(paragraphs)
+
+
 def _convert_markdown_to_html(markdown_text: str) -> str:
-    return markdown2.markdown(markdown_text, extras=["fenced-code-blocks", "tables", "strike", "task_list"])
+    if markdown2 is not None:
+        return markdown2.markdown(markdown_text, extras=["fenced-code-blocks", "tables", "strike", "task_list"])
+    return _simple_markdown_to_html(markdown_text)
 
 
 def _render_report_html(source_path: Optional[Path]) -> Tuple[str, bool, bool, str]:
